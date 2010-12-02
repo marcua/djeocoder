@@ -26,7 +26,7 @@ def test_PostgisIntersectionSearcher(cxn):
     print results
 
 def main(argv):
-    cxn = psycopg2.connect('dbname=openblock user=%s' % argv[0])
+    cxn = psycopg2.connect('dbname=openblock user=%s password=%s' % (argv[0], argv[1]))
     test_PostgisBlockSearcher(cxn)
     test_PostgisIntersectionSearcher(cxn)
     cxn.close()
