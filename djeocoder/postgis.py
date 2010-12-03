@@ -2,6 +2,8 @@ import psycopg2
 
 from parser.parsing import normalize, parse, ParsingError
 from results import BlockResult, IntersectionResult, parse_point
+from sqlalchemy import create_engine, MetaData, select,and_, or_, not_, Integer, cast
+from sqlalchemy.sql import func
 
 class Correction:
     def __init__(self, incorrect, correct):
@@ -34,11 +36,10 @@ class PostgisBlockSearcher:
     Handles interaction with the underlying database, taking a call to the search() method, converting it into a query,
     and then forming the response rows into BlockResult objects.
     """
-    def __init__(self, conn): 
-        self.conn =conn
+    def __init__(self, db_tables): 
+        self.db_tables = db_tables
         
     def close(self):
-        # self.conn.close()
         pass
 
     def contains_number(self, number, from_num, to_num, left_from_num, left_to_num, right_from_num, right_to_num):
@@ -80,34 +81,34 @@ class PostgisBlockSearcher:
         return (from_num <= number <= to_num), from_num, to_num
 
     def search(self,street,number=None,pre_dir=None,suffix=None,post_dir=None,city=None,state=None,zip=None,left_city=None,right_city=None):
-        query = 'select id, pretty_name, from_num, to_num, left_from_num, left_to_num, right_from_num, right_to_num, ST_AsEWKT(geom) from blocks where street=%s' 
-        params = [street.upper()]
-        if pre_dir: 
-            query += ' and predir=%s' 
-            params.apepnd(pre_dir.upper())
+
+        blocks = self.db_tables.blocks.c
+        select_clause = [blocks.id, blocks.pretty_name, blocks.from_num,
+                         blocks.to_num, blocks.left_from_num, blocks.left_to_num,
+                         blocks.right_from_num, blocks.right_to_num,
+                         func.ST_AsEWKT(blocks.geom)]
+
+        where_clause = [blocks.street == street.upper()]
+        if pre_dir:
+            where_clause.append(blocks.predir == pre_dir.upper())
         if suffix: 
-            query += ' and suffix=%s' 
-            params.append(suffix.upper())
+            where_clause.append(blocks.suffix == suffix.upper())
         if post_dir: 
-            query += ' and postdir=%s' 
-            params.append(post_dir.upper())
+            where_clause.append(blocks.postdir == post_dir.upper())
         if city: 
             cu = city.upper()
-            query += ' and (left_city=%s or right_city=%s)'
-            params.extend([cu, cu])
+            where_clause.append(or_(blocks.left_city == cu, blocks.right_city == cu))
         if state: 
             su = state.upper()
-            query += ' and (left_state=%s or right_state=%s)' 
-            params.extend([su, su])
+            where_clause.append(or_(blocks.left_state == su, blocks.right_state == su))
         if zip: 
-            query += ' and (left_zip=%s or right_zip=%s)' 
-            params.extend([zip, zip])
+            where_clause.append(or_(blocks.left_zip == zip, blocks.right_zip == zip))
         if number: 
-            query += ' and from_num <= %s and to_num >= %s' 
-            params.extend([number, number])
-
-        cursor = self.conn.cursor()
-        cursor.execute(query, tuple(params))
+            where_clause.append(or_(blocks.from_num <= number, blocks.to_num >= number))
+        
+        conn = self.db_tables.engine.connect()
+        query = select(select_clause, and_(*where_clause))
+        cursor = conn.execute(query)
 
         blocks = []
         for block in cursor.fetchall(): 
@@ -132,13 +133,15 @@ class PostgisBlockSearcher:
             # TODO: when we want to extract the geocoder from dependence on
             # Postgis, this is one of the main dependencies: we'll need to introduce
             # a new GIS library, so that we can do this interpolation "in code" -TWD
-            cursor.execute('SELECT ST_AsEWKT(line_interpolate_point(%s, %s))', [block[8], fraction])
+            select_clause = [func.ST_AsEWKT(func.line_interpolate_point(block[8], fraction))]
+            cursor = conn.execute(select(select_clause))
             wkt_str = cursor.fetchone()[0]
             
             x,y = parse_point(wkt_str)
             final_blocks.append(BlockResult(block, wkt_str))
             
         cursor.close()
+        conn.close()
         return final_blocks
 
 class PostgisIntersectionSearcher:

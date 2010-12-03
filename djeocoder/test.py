@@ -4,6 +4,8 @@ import psycopg2
 import djeocoder
 import postgis
 
+from db import DbTables
+
 # Example usage: 
 #
 # import postgis
@@ -15,12 +17,12 @@ import postgis
 
 def test_PostgisAddressGeocoder(cxn):
     g = djeocoder.PostgisAddressGeocoder(cxn)
-    locstring = '32 Vassar Street'
+    locstring = '32 Vassar Street, Cambridge MA'
     results = g.geocode(locstring)
     print results
 
-def test_PostgisBlockSearcher(cxn):
-    s = postgis.PostgisBlockSearcher(cxn)
+def test_PostgisBlockSearcher(db_tables):
+    s = postgis.PostgisBlockSearcher(db_tables)
     results = s.search('Tobin', 25)
     assert len(results) > 0, 'No results returned from PostgisBlockSearcher'
     print results
@@ -33,7 +35,8 @@ def test_PostgisIntersectionSearcher(cxn):
 
 def main(argv):
     cxn = psycopg2.connect('dbname=openblock user=%s password=%s' % (argv[0], argv[1]))
-    test_PostgisBlockSearcher(cxn)
+    db_tables = DbTables()
+    test_PostgisBlockSearcher(db_tables)
     test_PostgisIntersectionSearcher(cxn)
     test_PostgisAddressGeocoder(cxn)
     cxn.close()
