@@ -6,7 +6,7 @@ import warnings
 
 settings = get_settings()
 
-engine = None
+first_dbtables = None
 
 class DbTables():
     """
@@ -16,8 +16,8 @@ class DbTables():
             - intersections
     """
     def __init__(self):
-        global engine
-        if engine == None:
+        global first_dbtables
+        if first_dbtables == None:
             try:
                 dburi = settings.DATABASE_URI
                 dbconfig = None
@@ -34,10 +34,12 @@ class DbTables():
                 self.meta.reflect(bind=self.engine)
                 self.blocks = self.meta.tables['blocks']
                 self.intersections = self.meta.tables['intersections']
-                engine = True
+                first_dbtables = self
             except AttributeError, e:
                 raise e
                 raise SettingsException("To put results INTO a TABLE, please specify a DATABASE_URI in settings.py")
             except ArgumentError, e:
                 raise DbException(e)
+        else:
+            self.__dict__ = first_dbtables.__dict__
 

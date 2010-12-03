@@ -1,5 +1,6 @@
 import psycopg2
 
+from db import DbTables
 from parser.parsing import normalize, parse, ParsingError
 from results import BlockResult, IntersectionResult, parse_point
 from sqlalchemy import create_engine, MetaData, select,and_, or_, not_, Integer, cast
@@ -36,8 +37,8 @@ class PostgisBlockSearcher:
     Handles interaction with the underlying database, taking a call to the search() method, converting it into a query,
     and then forming the response rows into BlockResult objects.
     """
-    def __init__(self, db_tables): 
-        self.db_tables = db_tables
+    def __init__(self): 
+        self.db_tables = DbTables()
         
     def close(self):
         pass
@@ -148,45 +149,33 @@ class PostgisIntersectionSearcher:
     """
     Replaces the IntersectionManager clmass.
     """
-    def __init__(self,conn):
-        self.connection = conn
+    def __init__(self):
+        self.db_tables = DbTables()
 
     def close(self):
-        # self.connection.close()
         pass
     
     def search(self, predir_a=None, street_a=None, suffix_a=None, postdir_a=None, predir_b=None, street_b=None, suffix_b=None, postdir_b=None):
-        cursor = self.connection.cursor()
-        query = 'select id, pretty_name, ST_AsEWKT(location) from intersections'
-        filters = []
-        params = []
+        ixns = self.db_tables.intersections.c
+        select_clause = [ixns.id, ixns.pretty_name, func.ST_ASEWKT(ixns.location)]
+
+        where_clause = []
         if predir_a: 
-            filters.append('(predir_a=%s OR predir_b=%s)')
-            params.extend([predir_a, predir_a])
+            where_clause.append(or_(ixns.predir_a == predir_a, ixns.predir_b == predir_a))
         if predir_b: 
-            filters.append('(predir_a=%s OR predir_b=%s)')
-            params.extend([predir_b, predir_b])
+            where_clause.append(or_(ixns.predir_a == predir_b, ixns.predir_b == predir_b))
         if street_a: 
-            filters.append('(street_a=%s OR street_b=%s)')
-            params.extend([street_a, street_a])
+            where_clause.append(or_(ixns.street_a == street_a, ixns.street_b == street_a))
         if street_b: 
-            filters.append('(street_a=%s OR street_b=%s)')
-            params.extend([street_b, street_b])
+            where_clause.append(or_(ixns.street_a == street_b, ixns.street_b == street_b))
         if suffix_a: 
-            filters.append('(suffix_a=%s OR suffix_b=%s)')
-            params.extend([suffix_a, suffix_a])
+            where_clause.append(or_(ixns.suffix_a == suffix_a, ixns.suffix_b == suffix_a))
         if suffix_b: 
-            filters.append('(suffix_a=%s OR suffix_b=%s)')
-            params.extend([suffix_b, suffix_b])
+            where_clause.append(or_(ixns.suffix_a == suffix_b, ixns.suffix_b == suffix_b))
         if postdir_a: 
-            filters.append('(postdir_a=%s OR postdir_b=%s)')
-            params.extend([postdir_a, postdir_a])
+            where_clause.append(or_(ixns.postdir_a == postdir_a, ixns.postdir_b == postdir_a))
         if postdir_b: 
-            filters.append('(postdir_a=%s OR postdir_b=%s)')
-            params.extend([postdir_b, postdir_b])
-        if len(filters) > 0:
-            wherestr = ' where %s' % reduce(lambda x, y: '%s and %s' % (x, y), filters)
-            query += wherestr
+            where_clause.append(or_(ixns.postdir_a == postdir_b, ixns.postdir_b == postdir_b))
 
         # This line is in IntersectionManager
         #   qs = qs.extra(select={"point": "AsText(location)"})
@@ -198,8 +187,11 @@ class PostgisIntersectionSearcher:
         # print query
         # print filters
 
-        cursor.execute(query, params)
+        conn = self.db_tables.engine.connect()
+        query = select(select_clause, and_(*where_clause))
+        cursor = conn.execute(query)
         results = cursor.fetchall()
         cursor.close()
+        conn.close()
 
         return [IntersectionResult(res) for res in results]
